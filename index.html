@@ -1,0 +1,1904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Ludo Play & Earn</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  * { font-family: 'Outfit', sans-serif; -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+  body { overscroll-behavior: none; margin: 0; }
+  ::-webkit-scrollbar { width: 0; height: 0; }
+  @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .animate-slide-up { animation: slideUp .35s cubic-bezier(.22,1,.36,1) forwards; }
+  @keyframes popIn { 0% { transform: scale(.5); opacity: 0; } 80% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+  .animate-pop { animation: popIn .5s cubic-bezier(.22,1,.36,1) forwards; }
+  @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+  .animate-float { animation: float 3s ease-in-out infinite; }
+  @keyframes pulseGlow { 0%,100% { box-shadow: 0 0 0 0 rgba(139,92,246,.6); } 50% { box-shadow: 0 0 0 16px rgba(139,92,246,0); } }
+  .pulse-glow { animation: pulseGlow 2s infinite; }
+  @keyframes rotateSlow { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+  .rotate-slow { animation: rotateSlow 12s linear infinite; }
+  @keyframes bounceArrow { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+  .bounce-arrow { animation: bounceArrow 1s ease-in-out infinite; }
+</style>
+</head>
+<body class="bg-slate-950">
+<div id="root"></div>
+
+<script type="text/babel" data-type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+import { getAuth, signInAnonymously, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getFirestore, doc, setDoc, getDoc, onSnapshot, runTransaction, collection, query, where, getDocs, deleteDoc, updateDoc, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+const { useState, useEffect, useRef } = React;
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCLPHXHpM91uPae4ES1z6fMEbAUx8Py0tc",
+  authDomain: "ludo-play-earn-43e8d.firebaseapp.com",
+  projectId: "ludo-play-earn-43e8d",
+  storageBucket: "ludo-play-earn-43e8d.firebasestorage.app",
+  messagingSenderId: "217202358588",
+  appId: "1:217202358588:web:c4ce2ff7ca4194810fc639"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const AD_LINK = "https://omg10.com/4/10832896";
+const PENDING_KEY = 'ludo_pending_reward';
+
+const generatePath = () => {
+  const p = [];
+  for(let y=13; y>=9; y--) p.push({x:6, y});
+  for(let x=5; x>=0; x--) p.push({x, y:8});
+  p.push({x:0, y:7});
+  for(let x=0; x<=5; x++) p.push({x, y:6});
+  for(let y=5; y>=0; y--) p.push({x:6, y});
+  p.push({x:7, y:0});
+  for(let y=0; y<=5; y++) p.push({x:8, y});
+  for(let x=9; x<=14; x++) p.push({x, y:6});
+  p.push({x:14, y:7});
+  for(let x=14; x>=9; x--) p.push({x, y:8});
+  for(let y=9; y<=13; y++) p.push({x:8, y});
+  p.push({x:7, y:14});
+  return p;
+};
+const ludoPath = generatePath();
+const safeZones = [0,8,13,21,26,34,39,47];
+const redHome = [{x:7,y:13},{x:7,y:12},{x:7,y:11},{x:7,y:10},{x:7,y:9}];
+const yellowHome = [{x:7,y:1},{x:7,y:2},{x:7,y:3},{x:7,y:4},{x:7,y:5}];
+const tttWins = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+
+const defaultSettings = {
+  botMatchmaking: true,
+  adReward: 10, quizReward: 15, spinCost: 10, referReward: 100, scratchMin: 5, scratchMax: 20,
+  signupBonus: 150, minReferralsForWithdraw: 20, adLinkUrl: AD_LINK,
+  adLinkTitle: 'Sponsored Ad - Tap to View',
+  telegramBotUrl: 'https://t.me/YourBot/app',
+  limits: { video: 10, scratch: 10, quiz: 10, spin: 5 },
+  adTiers: [
+    { count: 1, bonus: 0,  label: 'Single Ad' },
+    { count: 3, bonus: 5,  label: 'Combo Pack' },
+    { count: 5, bonus: 15, label: 'Mega Pack' }
+  ],
+  tournaments: [
+    { id: 't1', type: 'Quick Ludo', game: 'ludo', mode: '1 VS 1', prize: 10, fee: 50 },
+    { id: 't2', type: 'Tic Tac Toe', game: 'tictactoe', mode: '1 VS 1', prize: 50, fee: 250 }
+  ],
+  withdrawMethods: [
+    { id: 'w1', name: 'Bkash', iconUrl: 'https://i.postimg.cc/wvwvj3hr/images.png', amounts: [50,100,500,1000], minPayout: 50 },
+    { id: 'w2', name: 'Nagad', iconUrl: 'https://i.postimg.cc/C1rhVXgX/images-(1).png', amounts: [50,100,500,1000], minPayout: 50 }
+  ],
+  socialTasks: [],
+  quizQuestions: [
+    { q: "What is 5 + 7?", options: ["10","12","15","11"], ans: "12" },
+    { q: "Which planet is called Red Planet?", options: ["Venus","Mars","Jupiter","Saturn"], ans: "Mars" },
+    { q: "What is 15 x 3?", options: ["35","40","45","50"], ans: "45" }
+  ]
+};
+
+const openExternalLink = (url) => {
+  if (!url) return false;
+  try {
+    const tg = window.Telegram?.WebApp;
+    if (tg && typeof tg.openLink === 'function') {
+      tg.openLink(url, { try_instant_view: false });
+      return true;
+    }
+  } catch(e) {}
+  try {
+    const w = window.open(url, '_blank', 'noopener,noreferrer');
+    if (w && !w.closed) return true;
+  } catch(e) {}
+  try {
+    const a = document.createElement('a');
+    a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    document.body.appendChild(a); a.click();
+    setTimeout(() => document.body.removeChild(a), 100);
+    return true;
+  } catch(e) {}
+  try { window.location.href = url; return true; } catch(e) {}
+  return false;
+};
+
+function App() {
+  const [user, setUser] = useState(null);
+  const [userData, setUserData] = useState({ coins: 0, inr: 0, name: 'Player', totalReferrals: 0 });
+  const [appSettings, setAppSettings] = useState(null);
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [myRank, setMyRank] = useState(0);
+  const [activeTab, setActiveTab] = useState('games');
+  const [currentScreen, setCurrentScreen] = useState('main');
+  const [selectedMethod, setSelectedMethod] = useState(null);
+  const [gamePrize, setGamePrize] = useState(0);
+  const [notification, setNotification] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [lowBalanceModal, setLowBalanceModal] = useState({ show: false, msg: '', type: 'coins' });
+  const [withdrawModal, setWithdrawModal] = useState({ show: false, amount: 0, method: null });
+  const [paymentId, setPaymentId] = useState('');
+  const [winPopup, setWinPopup] = useState(null);
+  const [spinState, setSpinState] = useState({ active: false, angle: 0, reward: null, showResult: false });
+  const [scratchAmount, setScratchAmount] = useState(0);
+  const [scratched, setScratched] = useState(false);
+  const [quizState, setQuizState] = useState({ answered: false, correct: false, question: null, selected: null });
+  const [completedTasks, setCompletedTasks] = useState([]);
+  const [bannerIndex, setBannerIndex] = useState(0);
+  const [showRefInput, setShowRefInput] = useState(false);
+  const [refCodeInput, setRefCodeInput] = useState('');
+  const [applyingRef, setApplyingRef] = useState(false);
+  const [celebrate, setCelebrate] = useState(null);
+  const [adBusy, setAdBusy] = useState(false);
+  const [claiming, setClaiming] = useState(false);
+  const refCheckDone = useRef(false);
+
+  const [adPicker, setAdPicker] = useState(false);
+  const [pendingReward, setPendingReward] = useState(null);
+  const [showClaim, setShowClaim] = useState(false);
+  const [adQueue, setAdQueue] = useState(null);
+  const claimShownRef = useRef(false);
+
+  const isGameOver = useRef(false);
+  const [opponent, setOpponent] = useState({ name: 'Bot', isBot: true, uid: 'bot' });
+  const [myColor, setMyColor] = useState('red');
+  const [gameRoomId, setGameRoomId] = useState(null);
+  const [activeGame, setActiveGame] = useState('ludo');
+  const [mmTimer, setMmTimer] = useState(60);
+  const mmRef = useRef(null);
+  const turnRef = useRef(null);
+  const [gameState, setGameState] = useState({ turn: 'red', redPos: 0, yellowPos: 26, dice: 6, rolling: false, msg: "Game Started!", redMisses: 0, yellowMisses: 0, timer: 15 });
+  const [tttState, setTttState] = useState({ turn: 'red', board: Array(9).fill(null), winner: null, msg: "Game Started!", redMisses: 0, yellowMisses: 0, timer: 15 });
+
+  const newHistItem = (title, amount, positive = true, status = 'Completed') => ({
+    title, amount: `${positive?'+':'-'}${amount}`, status, id: Date.now() + Math.random(),
+    date: new Date().toLocaleString('en-GB', { hour12: true, day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  });
+
+  const showNotif = (msg) => { setNotification(msg); setTimeout(() => setNotification(null), 3500); };
+
+  const checkLimit = (type, limit) => {
+    const today = new Date().toLocaleDateString('en-GB');
+    const s = userData?.dailyStats || {};
+    if (s.date !== today) return true;
+    return (s[type] || 0) < limit;
+  };
+
+  const getRemainingAds = () => {
+    const today = new Date().toLocaleDateString('en-GB');
+    const s = userData?.dailyStats || {};
+    const limit = Number((appSettings || defaultSettings).limits?.video) || 10;
+    if (s.date !== today) return limit;
+    return Math.max(0, limit - (s.video || 0));
+  };
+
+  const updateStats = (type, data) => {
+    const today = new Date().toLocaleDateString('en-GB');
+    let s = data.dailyStats || {};
+    if (s.date !== today) s = { date: today, video: 0, scratch: 0, quiz: 0, spin: 0 };
+    return { ...s, [type]: (s[type] || 0) + 1 };
+  };
+
+  // Restore pending reward from sessionStorage
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(PENDING_KEY);
+      if (saved) {
+        const data = JSON.parse(saved);
+        if (data.pendingReward) setPendingReward(data.pendingReward);
+        if (data.queue) setAdQueue(data.queue);
+        setTimeout(() => { if (data.pendingReward) setShowClaim(true); }, 800);
+      }
+    } catch(e) {}
+  }, []);
+
+  const savePending = (pending, queue) => {
+    try { sessionStorage.setItem(PENDING_KEY, JSON.stringify({ pendingReward: pending, queue })); } catch(e) {}
+  };
+  const clearPending = () => {
+    try { sessionStorage.removeItem(PENDING_KEY); } catch(e) {}
+  };
+
+  // ============== AUTH ==============
+  useEffect(() => {
+    signInAnonymously(auth).catch(() => {});
+    const unsub = onAuthStateChanged(auth, async (cu) => {
+      setUser(cu);
+      if (cu) {
+        const userRef = doc(db, 'zudocash_users', cu.uid);
+        const snap = await getDoc(userRef);
+        let tgName = null, startParam = null;
+        try {
+          const tg = window.Telegram?.WebApp;
+          if (tg?.initDataUnsafe?.user) {
+            const tu = tg.initDataUnsafe.user;
+            tgName = (tu.first_name || '') + (tu.last_name ? ' ' + tu.last_name : '');
+          }
+          startParam = tg?.initDataUnsafe?.start_param
+                    || new URLSearchParams(window.location.search).get('startapp')
+                    || new URLSearchParams(window.location.search).get('ref')
+                    || new URLSearchParams(window.location.hash.slice(1)).get('startapp');
+        } catch(e) {}
+
+        if (!snap.exists()) {
+          const myRef = cu.uid.substring(0,6).toUpperCase();
+          const settingsSnap = await getDoc(doc(db, 'zudocash_settings', 'global_config'));
+          let bonus = 150;
+          if (settingsSnap.exists()) bonus = Number(settingsSnap.data().signupBonus) || 150;
+          const refClean = startParam ? String(startParam).trim().toUpperCase() : null;
+          const newData = {
+            coins: bonus, inr: 0, name: tgName || 'Guest_' + cu.uid.substring(0,4),
+            history: [newHistItem('Signup Bonus', `${bonus} ⭐`, true)],
+            refCode: myRef, referredBy: refClean,
+            totalReferrals: 0, referralEarnings: 0,
+            creditedReferralUids: [],
+            isBlocked: false, completedTasks: []
+          };
+          await setDoc(userRef, newData);
+          if (refClean && refClean !== myRef) showNotif(`✅ Refer code applied: ${refClean}`);
+          else if (!refClean) setTimeout(() => setShowRefInput(true), 1500);
+        }
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const creditMyReferrals = async () => {
+    if (!user || !userData?.refCode || refCheckDone.current) return;
+    refCheckDone.current = true;
+    try {
+      const myCode = String(userData.refCode).toUpperCase();
+      const q = query(collection(db, 'zudocash_users'), where('referredBy', '==', myCode));
+      const snap = await getDocs(q);
+      if (snap.empty) return;
+      const myUid = user.uid;
+      const alreadyCredited = new Set(userData.creditedReferralUids || []);
+      const toCredit = [];
+      snap.forEach(d => { if (d.id !== myUid && !alreadyCredited.has(d.id)) toCredit.push(d.id); });
+      if (toCredit.length === 0) return;
+      const reward = Number((appSettings || defaultSettings).referReward) || 100;
+      const totalReward = toCredit.length * reward;
+      const myRef = doc(db, 'zudocash_users', myUid);
+      await runTransaction(db, async (t) => {
+        const s = await t.get(myRef);
+        const d = s.data();
+        const newCredited = [...(d.creditedReferralUids || []), ...toCredit];
+        t.update(myRef, {
+          coins: Number(d.coins || 0) + totalReward,
+          totalReferrals: Number(d.totalReferrals || 0) + toCredit.length,
+          referralEarnings: Number(d.referralEarnings || 0) + totalReward,
+          creditedReferralUids: newCredited,
+          history: [newHistItem(`Referral Bonus x${toCredit.length}`, `${totalReward} ⭐`, true), ...(d.history || [])].slice(0, 50)
+        });
+      });
+      setCelebrate({ title: '🎉 Referral Bonus!', sub: `+${totalReward} ⭐ (${toCredit.length} new)` });
+      setTimeout(() => setCelebrate(null), 3500);
+    } catch(e) { console.error(e); refCheckDone.current = false; }
+  };
+
+  useEffect(() => {
+    if (user && userData?.refCode) {
+      refCheckDone.current = false;
+      const timer = setTimeout(() => creditMyReferrals(), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [user?.uid, userData?.refCode]);
+
+  const applyReferralCode = async (myUid, code) => {
+    try {
+      const cleanCode = String(code).trim().toUpperCase();
+      if (!cleanCode || cleanCode.length < 4) { showNotif('❌ Invalid code'); return false; }
+      const myDoc = doc(db, 'zudocash_users', myUid);
+      const mySnap = await getDoc(myDoc);
+      const myData = mySnap.data();
+      if (myData?.referredBy) { showNotif('⚠️ Already used a refer code'); return false; }
+      if (myData?.refCode === cleanCode) { showNotif("You can't refer yourself!"); return false; }
+      const q = query(collection(db, 'zudocash_users'), where('refCode', '==', cleanCode));
+      const snap = await getDocs(q);
+      if (snap.empty) { showNotif('❌ Invalid Refer Code!'); return false; }
+      await updateDoc(myDoc, { referredBy: cleanCode });
+      showNotif(`✅ Refer code ${cleanCode} applied!`);
+      setCelebrate({ title: 'Refer Applied!', sub: `Code: ${cleanCode}` });
+      setTimeout(() => setCelebrate(null), 3000);
+      return true;
+    } catch(e) { showNotif('⚠️ Refer failed'); return false; }
+  };
+
+  const submitManualRef = async () => {
+    if (!user || !refCodeInput || applyingRef) return;
+    setApplyingRef(true);
+    const ok = await applyReferralCode(user.uid, refCodeInput);
+    setApplyingRef(false);
+    if (ok) { setShowRefInput(false); setRefCodeInput(''); }
+  };
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(doc(db, 'zudocash_users', user.uid), (s) => {
+      if (s.exists()) { setUserData(s.data()); setCompletedTasks(s.data().completedTasks || []); }
+    });
+    const unsubS = onSnapshot(doc(db, 'zudocash_settings', 'global_config'), (s) => {
+      if (s.exists()) setAppSettings(s.data());
+    });
+    return () => { unsub(); unsubS(); };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(collection(db, 'zudocash_users'), (snap) => {
+      let arr = [];
+      snap.forEach(d => arr.push({ uid: d.id, ...d.data() }));
+      arr.sort((a,b) => (Number(b.inr)||0) - (Number(a.inr)||0));
+      setLeaderboard(arr.slice(0,100));
+      const idx = arr.findIndex(x => x.uid === user.uid);
+      setMyRank(idx >= 0 ? idx + 1 : 0);
+    });
+    return () => unsub();
+  }, [user]);
+
+  useEffect(() => {
+    if (activeTab === 'coins' && currentScreen === 'main') {
+      const i = setInterval(() => setBannerIndex(p => (p+1)%2), 4000);
+      return () => clearInterval(i);
+    }
+  }, [activeTab, currentScreen]);
+
+  useEffect(() => { if (currentScreen === 'scratch') { setScratched(false); setScratchAmount(0); } }, [currentScreen]);
+
+  useEffect(() => {
+    const handle = () => {
+      if (document.visibilityState === 'visible' && pendingReward && !claimShownRef.current) {
+        claimShownRef.current = true;
+        setTimeout(() => setShowClaim(true), 600);
+      }
+    };
+    document.addEventListener('visibilitychange', handle);
+    return () => document.removeEventListener('visibilitychange', handle);
+  }, [pendingReward]);
+
+  useEffect(() => {
+    if (pendingReward && !claimShownRef.current) {
+      const t = setTimeout(() => {
+        if (pendingReward && !claimShownRef.current) {
+          claimShownRef.current = true;
+          setShowClaim(true);
+        }
+      }, 3000);
+      return () => clearTimeout(t);
+    }
+  }, [pendingReward]);
+
+  // ============ GIVE COINS (3 fallback methods) ============
+  const giveCoins = async (amount, reason, statType, statCount = 1) => {
+    if (!user) { showNotif('❌ Not logged in!'); return false; }
+    const numAmount = Number(amount);
+    if (!numAmount || numAmount <= 0) return false;
+
+    const r = doc(db, 'zudocash_users', user.uid);
+    console.log('[Coins] ▶ Adding', numAmount, '⭐ for', reason);
+
+    // Try transaction
+    try {
+      await runTransaction(db, async (t) => {
+        const s = await t.get(r);
+        if (!s.exists()) throw new Error('User doc missing');
+        const d = s.data();
+        const today = new Date().toLocaleDateString('en-GB');
+        let stats = d.dailyStats || {};
+        if (stats.date !== today) stats = { date: today, video: 0, scratch: 0, quiz: 0, spin: 0 };
+        if (statType) stats[statType] = (stats[statType] || 0) + statCount;
+        t.update(r, {
+          coins: Number(d.coins || 0) + numAmount,
+          history: [newHistItem(reason, `${numAmount} ⭐`, true), ...(Array.isArray(d.history) ? d.history : [])].slice(0, 50),
+          dailyStats: stats
+        });
+      });
+      console.log('[Coins] ✅ SUCCESS via transaction');
+      return true;
+    } catch(e1) { console.warn('[Coins] Transaction failed:', e1.message); }
+
+    // Fallback increment
+    try {
+      await updateDoc(r, { coins: increment(numAmount) });
+      console.log('[Coins] ✅ SUCCESS via increment');
+      return true;
+    } catch(e2) { console.warn('[Coins] Increment failed:', e2.message); }
+
+    // Final fallback
+    try {
+      const s = await getDoc(r);
+      const existing = s.exists() ? Number(s.data().coins || 0) : 0;
+      await setDoc(r, { coins: existing + numAmount }, { merge: true });
+      console.log('[Coins] ✅ SUCCESS via setDoc');
+      return true;
+    } catch(e3) {
+      console.error('[Coins] ❌ ALL FAILED:', e3.message);
+      showNotif('❌ Coins add failed! Check Firestore Rules.');
+      return false;
+    }
+  };
+
+  const giveBDT = async (amount, reason) => {
+    if (!user || !amount) return false;
+    try {
+      const r = doc(db, 'zudocash_users', user.uid);
+      await runTransaction(db, async (t) => {
+        const s = await t.get(r);
+        const d = s.data();
+        t.update(r, {
+          inr: Number(d.inr||0) + Number(amount),
+          history: [newHistItem(reason, `৳${amount}`, true), ...(d.history||[])].slice(0,50)
+        });
+      });
+      return true;
+    } catch(e) {
+      try {
+        await updateDoc(doc(db, 'zudocash_users', user.uid), { inr: increment(Number(amount)) });
+        return true;
+      } catch(e2) { return false; }
+    }
+  };
+
+  // ============ MULTI-AD FLOW ============
+  const watchAdForCoins = () => {
+    if (adBusy) return;
+    if (!navigator.onLine) return showNotif('No internet!');
+    setAdPicker(true);
+  };
+
+  const startMultiAd = (tier) => {
+    setAdPicker(false);
+    const s = appSettings || defaultSettings;
+    const perAdReward = Number(s.adReward) || 10;
+    const totalReward = tier.count * perAdReward + (tier.bonus || 0);
+    const remaining = getRemainingAds();
+
+    if (remaining < tier.count) {
+      return setLowBalanceModal({ show: true, msg: `Only ${remaining} ads left today. Pick a smaller pack.`, type: 'limit' });
+    }
+
+    const queue = { total: tier.count, watched: 0, perAdReward, bonus: tier.bonus || 0, totalReward, reason: 'Ad Reward', statType: 'video' };
+    setAdQueue(queue);
+    savePending(null, queue);
+    openNextAd(queue);
+  };
+
+  const openNextAd = (queue) => {
+    if (!queue || queue.watched >= queue.total) return;
+    const url = (appSettings || defaultSettings).adLinkUrl || AD_LINK;
+    setAdBusy(true);
+    openExternalLink(url);
+
+    const adNum = queue.watched + 1;
+    const isLast = adNum === queue.total;
+    const rewardThisTime = queue.perAdReward + (isLast ? queue.bonus : 0);
+    const reasonText = isLast && queue.bonus > 0 ? `Ad #${adNum} + Bonus` : `Ad #${adNum} of ${queue.total}`;
+
+    const pending = { type: 'multi-ad', amount: rewardThisTime, reason: reasonText, statType: queue.statType, adNumber: adNum, totalAds: queue.total, isLast, bonus: isLast ? queue.bonus : 0 };
+    setPendingReward(pending);
+    claimShownRef.current = false;
+    setShowClaim(false);
+    savePending(pending, { ...queue, watched: queue.watched });
+    setTimeout(() => setAdBusy(false), 2000);
+  };
+
+  const claimMultiAd = async () => {
+    if (!pendingReward || claiming) return;
+    setClaiming(true);
+    const pr = pendingReward;
+    const q = adQueue || { total: 1, watched: 0, perAdReward: pr.amount, bonus: 0 };
+    console.log('[Claim] ▶ Multi-ad:', pr);
+    showNotif('⏳ Coins যোগ হচ্ছে...');
+
+    try {
+      clearPending();
+      const ok = await giveCoins(pr.amount, pr.reason, pr.statType, 1);
+      setPendingReward(null);
+      setShowClaim(false);
+      claimShownRef.current = false;
+
+      if (!ok) {
+        savePending(pr, q);
+        setPendingReward(pr);
+        setTimeout(() => setShowClaim(true), 100);
+        setClaiming(false);
+        return;
+      }
+
+      setCelebrate({ title: `🎉 +${pr.amount} ⭐`, sub: `Ad #${pr.adNumber || 1}` });
+      setTimeout(() => setCelebrate(null), 2200);
+      showNotif(`✅ +${pr.amount} Coins যোগ হয়েছে!`);
+
+      const newWatched = (q.watched || 0) + 1;
+      const newQueue = { ...q, watched: newWatched };
+
+      if (newWatched >= q.total) {
+        setTimeout(() => {
+          setAdQueue(null);
+          savePending(null, null);
+          showNotif(`🎉 সব ${q.total}টা ad শেষ! মোট +${(q.perAdReward * q.total) + (q.bonus || 0)} ⭐`);
+        }, 700);
+      } else {
+        setTimeout(() => { setAdQueue(newQueue); savePending(null, newQueue); openNextAd(newQueue); }, 900);
+      }
+    } catch(err) {
+      console.error('[Claim] Exception:', err);
+      savePending(pr, q);
+      setPendingReward(pr);
+      setShowClaim(true);
+    } finally {
+      setClaiming(false);
+    }
+  };
+
+  const claimSingle = async () => {
+    if (!pendingReward || claiming) return;
+    setClaiming(true);
+    const pr = pendingReward;
+    showNotif('⏳ Coins যোগ হচ্ছে...');
+
+    try {
+      clearPending();
+      const ok = await giveCoins(pr.amount, pr.reason, pr.statType);
+
+      if (pr.type === 'scratch' && pr.scratchAmt) { setScratchAmount(pr.scratchAmt); setScratched(true); }
+      if (pr.type === 'task' && pr.taskId && user) {
+        const r = doc(db, 'zudocash_users', user.uid);
+        updateDoc(r, { completedTasks: [...completedTasks, pr.taskId] }).catch(()=>{});
+      }
+
+      setPendingReward(null);
+      setShowClaim(false);
+      claimShownRef.current = false;
+
+      if (ok) {
+        setCelebrate({ title: `🎉 +${pr.amount} ⭐`, sub: 'Reward claimed' });
+        setTimeout(() => setCelebrate(null), 2200);
+        showNotif(`✅ +${pr.amount} Coins যোগ হয়েছে!`);
+      } else {
+        savePending(pr, null);
+        setPendingReward(pr);
+        setTimeout(() => setShowClaim(true), 100);
+      }
+    } catch(err) {
+      console.error('[Claim] Exception:', err);
+      savePending(pr, null);
+      setPendingReward(pr);
+      setShowClaim(true);
+    } finally {
+      setClaiming(false);
+    }
+  };
+
+  const cancelMultiAd = () => {
+    clearPending();
+    setPendingReward(null);
+    setShowClaim(false);
+    setAdQueue(null);
+    claimShownRef.current = false;
+    showNotif('⚠️ Ad cancelled');
+  };
+
+  // ============ SCRATCH ============
+  const handleScratch = () => {
+    if (scratched || adBusy) return;
+    const s = appSettings || defaultSettings;
+    if (!checkLimit('scratch', s?.limits?.scratch || 10)) {
+      return setLowBalanceModal({ show: true, msg: 'Scratch limit reached today!', type: 'limit' });
+    }
+    const min = Number(s.scratchMin) || 5;
+    const max = Number(s.scratchMax) || 20;
+    const amt = Math.floor(Math.random() * (max - min + 1)) + min;
+    setAdBusy(true);
+    openExternalLink(s.adLinkUrl || AD_LINK);
+    const pending = { type: 'scratch', amount: amt, scratchAmt: amt, reason: 'Scratch Card', statType: 'scratch' };
+    setPendingReward(pending);
+    claimShownRef.current = false;
+    setShowClaim(false);
+    savePending(pending, null);
+    setTimeout(() => setAdBusy(false), 2000);
+  };
+
+  // ============ QUIZ ============
+  const loadQuiz = () => {
+    const s = appSettings || defaultSettings;
+    if (!checkLimit('quiz', s?.limits?.quiz || 10)) {
+      return setLowBalanceModal({ show: true, msg: 'Quiz limit reached today!', type: 'limit' });
+    }
+    const qs = s.quizQuestions || defaultSettings.quizQuestions;
+    const q = qs[Math.floor(Math.random() * qs.length)];
+    setQuizState({ answered: false, correct: false, question: q, selected: null });
+    setCurrentScreen('quiz');
+  };
+
+  const submitQuiz = (opt) => {
+    if (quizState.answered) return;
+    const isCorrect = opt === quizState.question.ans;
+    setQuizState(p => ({ ...p, answered: true, correct: isCorrect, selected: opt }));
+    if (isCorrect) {
+      const r = (appSettings || defaultSettings).quizReward || 15;
+      const s = appSettings || defaultSettings;
+      openExternalLink(s.adLinkUrl || AD_LINK);
+      const pending = { type: 'quiz', amount: r, reason: 'Quiz Winner', statType: 'quiz' };
+      setPendingReward(pending);
+      claimShownRef.current = false;
+      setShowClaim(false);
+      savePending(pending, null);
+    } else showNotif('❌ Wrong answer!');
+  };
+
+  // ============ SPIN ============
+  const startSpin = async () => {
+    if (spinState.active || !user) return;
+    const s = appSettings || defaultSettings;
+    if (!checkLimit('spin', s?.limits?.spin || 5)) {
+      return setLowBalanceModal({ show: true, msg: 'Spin limit reached!', type: 'limit' });
+    }
+    const cost = Number(s.spinCost) || 10;
+    if (Number(userData.coins) < cost) {
+      return setLowBalanceModal({ show: true, msg: `Need ${cost} Coins to spin!`, type: 'coins' });
+    }
+    const outcomes = [
+      { type: 'coin', val: 10, name: '10 Coins' },
+      { type: 'coin', val: 50, name: '50 Coins' },
+      { type: 'coin', val: 5, name: '5 Coins' },
+      { type: 'inr', val: 1, name: '৳1 Cash' },
+      { type: 'coin', val: 20, name: '20 Coins' },
+      { type: 'none', val: 0, name: 'Miss' }
+    ];
+    const rand = Math.random();
+    const idx = rand < 0.05 ? 3 : rand < 0.15 ? 1 : rand < 0.35 ? 4 : rand < 0.65 ? 0 : rand < 0.85 ? 2 : 5;
+    const result = outcomes[idx];
+    const baseAngle = spinState.angle % 360;
+    const targetRot = 360 - (idx * 60 + 30);
+    const totalRot = spinState.angle + (360 - baseAngle) + 360*5 + targetRot;
+    setSpinState({ active: true, angle: totalRot, reward: null, showResult: false });
+    setTimeout(async () => {
+      setSpinState(p => ({ ...p, active: false, reward: result, showResult: true }));
+      try {
+        const r = doc(db, 'zudocash_users', user.uid);
+        await runTransaction(db, async (t) => {
+          const sn = await t.get(r); const d = sn.data();
+          let c = Number(d.coins||0) - cost, i = Number(d.inr||0), txt = `Spin (-${cost}⭐)`;
+          if (result.type === 'coin' && result.val > 0) { c += result.val; txt = `Spin Won ${result.val}⭐`; }
+          else if (result.type === 'inr') { i += result.val; txt = `Spin Won ৳${result.val}`; }
+          t.update(r, { coins: c, inr: i, history: [newHistItem(txt, result.val>0?`+${result.val}`:'0', result.val>0), ...(d.history||[])].slice(0,50), dailyStats: updateStats('spin', d) });
+        });
+      } catch(e) {}
+    }, 3000);
+  };
+
+  // ============ WITHDRAW ============
+  const processWithdraw = async () => {
+    if (!withdrawModal.method || !paymentId) return;
+    const req = Number((appSettings || defaultSettings).minReferralsForWithdraw) || 20;
+    const has = Number(userData?.totalReferrals || 0);
+    if (has < req) {
+      setWithdrawModal({ show: false, amount: 0, method: null });
+      setPaymentId('');
+      showNotif(`Need ${req} referrals! You have ${has}.`);
+      setTimeout(() => setCurrentScreen('refer'), 1200);
+      return;
+    }
+    const amt = Number(withdrawModal.amount);
+    try {
+      const r = doc(db, 'zudocash_users', user.uid);
+      await runTransaction(db, async (t) => {
+        const sn = await t.get(r); const d = sn.data();
+        if (Number(d.inr) < amt) throw 'Low';
+        t.update(r, { inr: Number(d.inr) - amt, history: [newHistItem(`Withdraw: ${withdrawModal.method.name}`, `৳${amt}`, false, 'Pending'), ...(d.history||[])].slice(0,50) });
+      });
+      showNotif(`✅ ৳${amt} withdraw pending!`);
+      setWithdrawModal({ show: false, amount: 0, method: null });
+      setPaymentId(''); setCurrentScreen('main');
+    } catch(e) { showNotif('Withdrawal failed!'); }
+  };
+
+  // ============ GAME ============
+  const joinGame = async (fee, prize, type) => {
+    if (Number(userData.coins) < Number(fee)) {
+      return setLowBalanceModal({ show: true, msg: `Need ${fee} Coins!`, type: 'coins' });
+    }
+    if (fee > 0) {
+      try {
+        const r = doc(db, 'zudocash_users', user.uid);
+        await runTransaction(db, async (t) => {
+          const sn = await t.get(r); const d = sn.data();
+          if (Number(d.coins||0) < fee) throw 'low';
+          t.update(r, { coins: Number(d.coins||0) - fee, history: [newHistItem(`${type} Entry`, `${fee} ⭐`, false), ...(d.history||[])].slice(0,50) });
+        });
+      } catch(e) { return showNotif('Transaction failed!'); }
+    }
+    setGamePrize(Number(prize));
+    setActiveGame(type);
+    setMmTimer(60);
+    setCurrentScreen('matchmaking');
+    isGameOver.current = false;
+    if (type === 'ludo') setGameState({ turn: 'red', redPos: 0, yellowPos: 26, dice: 6, rolling: false, msg: "Game Started!", redMisses: 0, yellowMisses: 0, timer: 15 });
+    else setTttState({ turn: 'red', board: Array(9).fill(null), winner: null, msg: "Game Started!", redMisses: 0, yellowMisses: 0, timer: 15 });
+    let matched = false;
+    try {
+      const q = query(collection(db, 'ludo_matchmaking'), where('status','==','waiting'), where('fee','==',Number(fee)), where('gameType','==',String(type)));
+      const sn = await getDocs(q);
+      if (!sn.empty) {
+        const room = sn.docs[0];
+        await setDoc(doc(db, 'ludo_matchmaking', room.id), { status: 'playing', p2: user.uid, p2Name: userData.name }, { merge: true });
+        setGameRoomId(room.id); setMyColor('yellow');
+        setOpponent({ name: room.data().p1Name, isBot: false, uid: room.data().p1 });
+        matched = true;
+        proceedToGame();
+      } else {
+        const newRoom = doc(collection(db, 'ludo_matchmaking'));
+        await setDoc(newRoom, { status: 'waiting', fee: Number(fee), p1: user.uid, p1Name: userData.name, gameType: String(type), createdAt: Date.now() });
+        setGameRoomId(newRoom.id); setMyColor('red');
+        const unsub = onSnapshot(newRoom, (s) => {
+          const d = s.data();
+          if (d?.status === 'playing' && d?.p2) {
+            setOpponent({ name: d.p2Name, isBot: false, uid: d.p2 });
+            matched = true; unsub();
+            proceedToGame();
+          }
+        });
+        let time = 60;
+        mmRef.current = setInterval(async () => {
+          time--; setMmTimer(time);
+          if (matched) { clearInterval(mmRef.current); return; }
+          if (time <= 0) {
+            clearInterval(mmRef.current); unsub();
+            const s = appSettings || defaultSettings;
+            if (s.botMatchmaking !== false) {
+              await setDoc(newRoom, { status: 'bot_match' }, { merge: true });
+              setOpponent({ name: 'Pro Bot', isBot: true, uid: 'bot' });
+              setMyColor('red'); proceedToGame();
+            } else {
+              await deleteDoc(newRoom);
+              try {
+                const r = doc(db, 'zudocash_users', user.uid);
+                await runTransaction(db, async (t) => {
+                  const sn = await t.get(r); const d = sn.data();
+                  t.update(r, { coins: Number(d.coins||0) + Number(fee), history: [newHistItem('Refund', `${fee} ⭐`, true), ...(d.history||[])].slice(0,50) });
+                });
+              } catch(e) {}
+              showNotif('No opponent! Fee refunded.');
+              setCurrentScreen('main');
+            }
+          }
+        }, 1000);
+      }
+    } catch(e) {
+      setOpponent({ name: 'Pro Bot', isBot: true, uid: 'bot' });
+      setMyColor('red'); proceedToGame();
+    }
+  };
+
+  const proceedToGame = () => {
+    if (mmRef.current) clearInterval(mmRef.current);
+    setTimeout(() => setCurrentScreen('vs'), 800);
+    setTimeout(() => setCurrentScreen('playing'), 3500);
+  };
+
+  const surrender = () => {
+    if (gameRoomId && !opponent.isBot) {
+      const w = myColor === 'red' ? 'yellow' : 'red';
+      setDoc(doc(db, 'ludo_matchmaking', gameRoomId), { winner: w, message: 'Surrendered' }, { merge: true }).catch(()=>{});
+    }
+    if (turnRef.current) clearInterval(turnRef.current);
+    showNotif('You surrendered!');
+    setCurrentScreen('main');
+  };
+
+  const handleWin = async (winner, wasSurrender = false) => {
+    if (isGameOver.current) return;
+    isGameOver.current = true;
+    if (turnRef.current) clearInterval(turnRef.current);
+    if (winner === myColor) {
+      setWinPopup(`৳${gamePrize}`);
+      await giveBDT(gamePrize, 'Match Won');
+    } else {
+      if (winner === 'draw') showNotif('Game drawn!');
+      else if (wasSurrender) showNotif('Opponent surrendered!');
+      else showNotif('You lost!');
+    }
+    setTimeout(() => { setWinPopup(null); setCurrentScreen('main'); }, 4000);
+  };
+
+  const rollDice = (isBot) => {
+    if (gameState.rolling || gameState.winner) return;
+    if (opponent.isBot && isBot && gameState.turn !== 'yellow') return;
+    if (!isBot && gameState.turn !== myColor) return;
+    setGameState(p => ({ ...p, rolling: true }));
+    let n = 0;
+    const iv = setInterval(() => {
+      setGameState(p => ({ ...p, dice: Math.floor(Math.random()*6)+1 }));
+      n++;
+      if (n > 8) { clearInterval(iv); processMove(Math.floor(Math.random()*6)+1); }
+    }, 100);
+  };
+
+  const processMove = (roll) => {
+    setGameState(prev => {
+      let st = { ...prev, dice: roll, rolling: false, timer: 15 };
+      const isRed = prev.turn === 'red';
+      const cur = isRed ? prev.redPos : prev.yellowPos;
+      let np = cur;
+      if (typeof cur === 'number') {
+        if (isRed) {
+          if (cur + roll <= 50) np = cur + roll;
+          else if (cur + roll <= 56) np = `H${cur + roll - 51}`;
+        } else {
+          let lp = cur >= 26 ? cur - 26 : cur + 26;
+          if (lp + roll <= 50) { let nl = lp + roll; np = nl >= 26 ? nl - 26 : nl + 26; }
+          else if (lp + roll <= 56) np = `H${lp + roll - 51}`;
+        }
+      } else if (typeof cur === 'string' && cur.startsWith('H')) {
+        const hi = parseInt(cur[1]);
+        if (hi + roll <= 5) np = `H${hi + roll}`;
+      }
+      if (isRed) st.redPos = np; else st.yellowPos = np;
+      if (typeof np === 'number' && !safeZones.includes(np)) {
+        if (isRed && np === prev.yellowPos) { st.yellowPos = 26; st.msg = 'Token cut!'; roll = 6; }
+        else if (!isRed && np === prev.redPos) { st.redPos = 0; st.msg = 'Token cut!'; roll = 6; }
+      }
+      if (np === 'H5') {
+        st.winner = isRed ? 'red' : 'yellow';
+        st.msg = `${isRed?'Red':'Yellow'} Won!`;
+        handleWin(st.winner);
+        return st;
+      }
+      if (roll === 6) st.msg = 'Rolled 6! Roll again';
+      else { st.turn = isRed ? 'yellow' : 'red'; st.msg = 'Turn switched'; }
+      return st;
+    });
+  };
+
+  const tttClick = (idx, isBot = false) => {
+    if (tttState.winner || tttState.board[idx]) return;
+    if (opponent.isBot && isBot && tttState.turn !== 'yellow') return;
+    if (!isBot && tttState.turn !== myColor) return;
+    setTttState(prev => {
+      let b = [...prev.board]; b[idx] = prev.turn;
+      let st = { ...prev, board: b, timer: 15 };
+      let win = false;
+      for (let p of tttWins) if (b[p[0]] && b[p[0]] === b[p[1]] && b[p[1]] === b[p[2]]) { win = true; break; }
+      if (win) { st.winner = prev.turn; st.msg = `${prev.turn.toUpperCase()} WINS!`; handleWin(st.winner); return st; }
+      if (!b.includes(null)) { st.winner = 'draw'; st.msg = 'Draw!'; setTimeout(() => { showNotif('Draw!'); setCurrentScreen('main'); }, 3000); return st; }
+      st.turn = prev.turn === 'red' ? 'yellow' : 'red';
+      st.msg = 'Turn switched';
+      return st;
+    });
+  };
+
+  useEffect(() => {
+    if (currentScreen !== 'playing') return;
+    const st = activeGame === 'ludo' ? gameState : tttState;
+    if (st.turn === myColor && !st.winner) {
+      if (turnRef.current) clearInterval(turnRef.current);
+      turnRef.current = setInterval(() => {
+        if (activeGame === 'ludo') {
+          setGameState(p => {
+            if (p.turn !== myColor || p.winner || p.rolling) return p;
+            const nt = p.timer - 1;
+            if (nt <= 0) { missedTurn('ludo', p); return { ...p, timer: 15 }; }
+            return { ...p, timer: nt };
+          });
+        } else {
+          setTttState(p => {
+            if (p.turn !== myColor || p.winner) return p;
+            const nt = p.timer - 1;
+            if (nt <= 0) { missedTurn('ttt', p); return { ...p, timer: 15 }; }
+            return { ...p, timer: nt };
+          });
+        }
+      }, 1000);
+    } else if (turnRef.current) clearInterval(turnRef.current);
+    return () => { if (turnRef.current) clearInterval(turnRef.current); };
+  }, [currentScreen, gameState.turn, tttState.turn, myColor, activeGame, gameState.winner, tttState.winner]);
+
+  const missedTurn = (type, prev) => {
+    showNotif("Time's up! Missed turn.");
+    const key = `${myColor}Misses`;
+    const misses = (prev[key] || 0) + 1;
+    const next = myColor === 'red' ? 'yellow' : 'red';
+    let st = { ...prev, turn: next, [key]: misses, timer: 15, rolling: false };
+    if (misses >= 3) { st.winner = next; st.msg = 'You missed 3 times!'; handleWin(next, true); }
+    else { st.msg = `Missed! Strike ${misses}/3`; }
+    if (type === 'ludo') setGameState(st); else setTttState(st);
+  };
+
+  useEffect(() => {
+    if (currentScreen !== 'playing' || !opponent.isBot) return;
+    if (activeGame === 'ludo' && gameState.turn !== myColor && !gameState.rolling && !gameState.winner) {
+      const t = setTimeout(() => rollDice(true), 1500);
+      return () => clearTimeout(t);
+    }
+    if (activeGame === 'tictactoe' && tttState.turn !== myColor && !tttState.winner) {
+      const t = setTimeout(() => {
+        const empty = tttState.board.map((v,i) => v === null ? i : null).filter(v => v !== null);
+        if (empty.length) tttClick(empty[Math.floor(Math.random()*empty.length)], true);
+      }, 1500);
+      return () => clearTimeout(t);
+    }
+  }, [currentScreen, gameState.turn, gameState.rolling, tttState.turn, opponent, myColor, activeGame]);
+
+  const getCoord = (color, pos) => {
+    if (typeof pos === 'number') { if (pos < 0 || pos > 51) return null; return ludoPath[pos]; }
+    if (typeof pos === 'string' && pos.startsWith('H')) {
+      const i = parseInt(pos[1]);
+      if (i >= 1 && i <= 5) return color === 'red' ? redHome[i-1] : yellowHome[i-1];
+    }
+    return null;
+  };
+
+  // ==================== REF INPUT ====================
+  if (showRefInput) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-violet-600 via-purple-700 to-fuchsia-700 flex items-center justify-center p-6 relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-96 h-96 bg-pink-400/30 rounded-full blur-3xl animate-float"></div>
+        <div className="w-full max-w-sm bg-white/95 backdrop-blur-2xl rounded-[2rem] shadow-2xl p-7 animate-pop relative z-10 border border-white/40">
+          <div className="text-center mb-6">
+            <div className="w-20 h-20 mx-auto bg-gradient-to-br from-amber-400 to-orange-500 rounded-3xl flex items-center justify-center shadow-2xl mb-4 animate-float">
+              <i className="fa-solid fa-gift text-white text-4xl"></i>
+            </div>
+            <h2 className="text-3xl font-black text-slate-800 mb-1">Have a Code?</h2>
+            <p className="text-sm text-slate-500 font-semibold">Enter refer code & get bonus!</p>
+          </div>
+          <input type="text" value={refCodeInput} onChange={e => setRefCodeInput(e.target.value.toUpperCase())}
+            placeholder="ENTER CODE" maxLength={10}
+            className="w-full text-center text-3xl font-black tracking-widest p-5 bg-gradient-to-r from-violet-50 to-purple-50 border-2 border-violet-200 rounded-3xl outline-none focus:border-violet-500 mb-4 uppercase" />
+          <button onClick={submitManualRef} disabled={!refCodeInput || applyingRef}
+            className="w-full bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white font-black py-5 rounded-3xl shadow-xl active:scale-95 disabled:opacity-50 text-lg mb-3">
+            {applyingRef ? '⏳ Applying...' : '🎁 Apply Code'}
+          </button>
+          <button onClick={() => setShowRefInput(false)} className="w-full text-slate-400 font-bold py-3 text-sm">Skip for now</button>
+        </div>
+        {celebrate && <CelebrationOverlay data={celebrate} />}
+      </div>
+    );
+  }
+
+  // ==================== MATCHMAKING / VS ====================
+  if (currentScreen === 'matchmaking' || currentScreen === 'vs') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-purple-900 to-fuchsia-900 flex flex-col items-center justify-center text-white p-6 relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-96 h-96 bg-fuchsia-500/30 rounded-full blur-3xl animate-float"></div>
+        {currentScreen === 'matchmaking' ? (
+          <div className="relative z-10 text-center">
+            <h1 className="text-4xl font-black bg-gradient-to-r from-yellow-300 to-amber-500 bg-clip-text text-transparent mb-10 tracking-wider">
+              {activeGame.toUpperCase()}
+            </h1>
+            <div className="relative w-64 h-64 mx-auto flex items-center justify-center mb-8">
+              <div className="absolute inset-0 rounded-full border-2 border-cyan-400/40 animate-ping"></div>
+              <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white shadow-2xl pulse-glow z-10">
+                <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid || 'me'}`} className="w-full h-full bg-white" />
+              </div>
+            </div>
+            <p className="text-sm tracking-[0.3em] mb-6 text-cyan-200 font-bold">SEARCHING OPPONENT</p>
+            <div className="text-5xl font-black text-yellow-300 bg-white/10 backdrop-blur-md rounded-2xl px-6 py-3 inline-block border border-white/20">
+              00:{mmTimer < 10 ? '0'+mmTimer : mmTimer}
+            </div>
+          </div>
+        ) : (
+          <div className="relative z-10 flex items-center justify-between w-full max-w-md">
+            <div className="text-center">
+              <div className={`w-28 h-28 rounded-full overflow-hidden border-4 ${myColor==='red'?'border-red-500':'border-yellow-400'} shadow-2xl mb-3`}>
+                <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid || 'me'}`} className="w-full h-full bg-white" />
+              </div>
+              <p className="font-bold text-sm">{userData.name}</p>
+            </div>
+            <div className="text-5xl font-black bg-gradient-to-br from-yellow-300 to-red-500 bg-clip-text text-transparent animate-pulse">VS</div>
+            <div className="text-center">
+              <div className={`w-28 h-28 rounded-full overflow-hidden border-4 ${myColor==='yellow'?'border-red-500':'border-yellow-400'} shadow-2xl mb-3`}>
+                <img src={opponent.isBot ? `https://api.dicebear.com/7.x/bottts/svg?seed=ProBot` : `https://api.dicebear.com/7.x/avataaars/svg?seed=${opponent.uid}`} className="w-full h-full bg-white" />
+              </div>
+              <p className="font-bold text-sm">{opponent.name}</p>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ==================== PLAYING ====================
+  if (currentScreen === 'playing') {
+    const g = activeGame === 'ludo' ? gameState : tttState;
+    const myTurn = g.turn === myColor;
+    const PlayerBar = () => (
+      <div className="flex justify-between items-center p-3 bg-slate-900/95 backdrop-blur-lg shadow-2xl border-b border-slate-700">
+        <div className={`flex items-center gap-2 p-2 rounded-2xl ${myTurn ? 'bg-gradient-to-br from-violet-600/40 to-fuchsia-600/40 ring-2 ring-violet-400' : 'opacity-60'}`}>
+          <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid || 'me'}`} className={`w-12 h-12 rounded-full border-2 ${myColor==='red'?'border-red-500':'border-yellow-400'}`} />
+          <div>
+            <p className={`font-black text-sm ${myColor==='red'?'text-red-400':'text-yellow-400'}`}>You</p>
+            <p className="text-[10px] text-slate-400">Prize: ৳{gamePrize}</p>
+          </div>
+        </div>
+        <div className={`flex items-center gap-2 p-2 rounded-2xl ${!myTurn ? 'bg-gradient-to-br from-violet-600/40 to-fuchsia-600/40 ring-2 ring-violet-400' : 'opacity-60'}`}>
+          <div className="text-right">
+            <p className={`font-black text-sm ${myColor==='red'?'text-yellow-400':'text-red-400'}`}>{opponent.name}</p>
+          </div>
+          <img src={opponent.isBot ? `https://api.dicebear.com/7.x/bottts/svg?seed=ProBot` : `https://api.dicebear.com/7.x/avataaars/svg?seed=${opponent.uid}`} className={`w-12 h-12 rounded-full border-2 ${myColor==='red'?'border-yellow-400':'border-red-500'}`} />
+        </div>
+      </div>
+    );
+    if (activeGame === 'tictactoe') {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950 to-slate-950 flex flex-col max-w-md mx-auto text-white">
+          <PlayerBar />
+          <div className="flex-1 flex flex-col items-center justify-center p-4">
+            <div className="text-center mb-6 px-6 py-2 bg-white/10 backdrop-blur-lg rounded-full border border-white/20 font-bold text-sm">{tttState.msg}</div>
+            <div className="grid grid-cols-3 gap-3 bg-slate-900/80 p-3 rounded-3xl shadow-2xl border border-slate-700">
+              {tttState.board.map((c, i) => (
+                <button key={i} onClick={() => tttClick(i)} disabled={c !== null || tttState.turn !== myColor || tttState.winner !== null}
+                  className={`w-24 h-24 flex items-center justify-center rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 text-6xl font-black shadow-inner ${c ? 'animate-pop' : 'active:scale-95'}`}>
+                  {c === 'red' && <i className="fa-solid fa-xmark text-red-500"></i>}
+                  {c === 'yellow' && <i className="fa-regular fa-circle text-yellow-400"></i>}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="p-4 bg-slate-900/95 backdrop-blur-lg rounded-t-3xl border-t border-slate-700 text-center">
+            <button onClick={surrender} className="text-xs text-red-400 underline font-bold">Surrender</button>
+          </div>
+          {winPopup && <WinOverlay amount={winPopup} />}
+        </div>
+      );
+    }
+    const rc = getCoord('red', gameState.redPos);
+    const yc = getCoord('yellow', gameState.yellowPos);
+    const canRoll = gameState.turn === myColor && !gameState.rolling && !gameState.winner;
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 flex flex-col max-w-md mx-auto text-white">
+        <PlayerBar />
+        <div className="flex-1 flex flex-col items-center justify-center p-2">
+          <div className="text-center mb-3 px-6 py-2 bg-white/10 backdrop-blur-lg rounded-full border border-white/20 font-bold text-sm">{gameState.msg}</div>
+          <div className="bg-white p-2 rounded-2xl shadow-2xl w-full aspect-square max-w-[400px]">
+            <div className="w-full h-full grid gap-[1.5px] bg-slate-300 rounded-xl overflow-hidden" style={{ gridTemplateColumns: 'repeat(15,1fr)', gridTemplateRows: 'repeat(15,1fr)' }}>
+              <div style={{gridArea:'1/1/7/7'}} className="bg-gradient-to-br from-emerald-500 to-emerald-600"></div>
+              <div style={{gridArea:'1/10/7/16'}} className="bg-gradient-to-br from-yellow-400 to-yellow-500"></div>
+              <div style={{gridArea:'10/1/16/7'}} className="bg-gradient-to-br from-red-500 to-red-600"></div>
+              <div style={{gridArea:'10/10/16/16'}} className="bg-gradient-to-br from-blue-500 to-blue-600"></div>
+              <div style={{gridArea:'7/7/10/10'}} className="bg-slate-900 border-[6px] border-white flex items-center justify-center"><i className="fa-solid fa-trophy text-yellow-400 opacity-60"></i></div>
+              {ludoPath.map((p,i) => {
+                let bg = 'bg-white';
+                if (i===0) bg='bg-red-100'; if (i===13) bg='bg-emerald-100';
+                if (i===26) bg='bg-yellow-100'; if (i===39) bg='bg-blue-100';
+                return <div key={i} style={{gridColumn:p.x+1,gridRow:p.y+1}} className={`${bg} flex items-center justify-center`}>{safeZones.includes(i) && <i className="fa-solid fa-star text-[10px] text-amber-400 opacity-70"></i>}</div>;
+              })}
+              {redHome.map((p,i) => <div key={'r'+i} style={{gridColumn:p.x+1,gridRow:p.y+1}} className="bg-red-200"></div>)}
+              {yellowHome.map((p,i) => <div key={'y'+i} style={{gridColumn:p.x+1,gridRow:p.y+1}} className="bg-yellow-200"></div>)}
+              {rc && <div style={{gridColumn:rc.x+1,gridRow:rc.y+1}} className="relative z-10 flex items-center justify-center pointer-events-none"><div className={`w-[85%] h-[85%] bg-gradient-to-br from-red-400 to-red-600 rounded-full border-2 border-white ${gameState.turn==='red'&&!gameState.rolling?'animate-bounce':''}`}></div></div>}
+              {yc && <div style={{gridColumn:yc.x+1,gridRow:yc.y+1}} className="relative z-10 flex items-center justify-center pointer-events-none"><div className={`w-[85%] h-[85%] bg-gradient-to-br from-yellow-300 to-yellow-500 rounded-full border-2 border-white ${gameState.turn==='yellow'&&!gameState.rolling?'animate-bounce':''}`}></div></div>}
+            </div>
+          </div>
+        </div>
+        <div className="p-5 bg-slate-900/95 backdrop-blur-lg rounded-t-3xl border-t border-slate-700 flex justify-center items-center gap-6">
+          <button onClick={() => rollDice(false)} disabled={!canRoll}
+            className={`w-24 h-24 rounded-3xl flex items-center justify-center text-5xl shadow-2xl transition-all ${canRoll ? (myColor==='red'?'bg-gradient-to-b from-red-400 to-red-600':'bg-gradient-to-b from-yellow-300 to-yellow-500') + ' active:scale-95' : 'bg-slate-700 opacity-50'}`}>
+            {gameState.rolling ? <i className="fa-solid fa-dice-d6 animate-spin text-white text-4xl"></i> : <span className="font-black text-white">{gameState.dice}</span>}
+          </button>
+          <div className="text-sm">
+            <p className="text-slate-400">Tap dice to roll</p>
+            <button onClick={surrender} className="mt-3 text-xs text-red-400 underline font-bold">Surrender</button>
+          </div>
+        </div>
+        {winPopup && <WinOverlay amount={winPopup} />}
+      </div>
+    );
+  }
+
+  // ==================== SPIN / SCRATCH / QUIZ ====================
+  if (['spinWheel','scratch','quiz'].includes(currentScreen)) {
+    const s = appSettings || defaultSettings;
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950 to-slate-950 flex flex-col items-center justify-center text-white max-w-md mx-auto p-4 relative overflow-hidden">
+        <button onClick={() => setCurrentScreen('main')} className="absolute top-4 left-4 p-3 bg-white/10 backdrop-blur-lg rounded-2xl z-50 border border-white/20">
+          <i className="fa-solid fa-xmark text-xl"></i>
+        </button>
+        {currentScreen === 'spinWheel' && (
+          <div className="relative z-10 w-full flex flex-col items-center">
+            <h1 className="text-4xl font-black mb-2 bg-gradient-to-r from-yellow-300 to-amber-500 bg-clip-text text-transparent">SPIN & WIN</h1>
+            <p className="text-slate-400 text-sm mb-6">Cost: {s.spinCost||10} ⭐</p>
+            <div className="relative w-72 h-72 mb-8">
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 w-0 h-0 border-l-[15px] border-r-[15px] border-t-[25px] border-transparent border-t-yellow-400"></div>
+              <div className="w-full h-full rounded-full border-4 border-yellow-400 shadow-[0_0_60px_rgba(251,191,36,0.5)] overflow-hidden"
+                style={{ transition:'transform 3s cubic-bezier(.25,.1,.25,1)', transform:`rotate(${spinState.angle}deg)`,
+                background:'conic-gradient(#8B5CF6 0 60deg, #10B981 60deg 120deg, #F59E0B 120deg 180deg, #EF4444 180deg 240deg, #EC4899 240deg 300deg, #3B82F6 300deg 360deg)' }}>
+                {[{l:'10 ⭐',a:30},{l:'50 ⭐',a:90},{l:'5 ⭐',a:150},{l:'৳1',a:210},{l:'20 ⭐',a:270},{l:'Miss',a:330}].map((it,i) => (
+                  <div key={i} className="absolute inset-0 flex items-start justify-center pt-8" style={{transform:`rotate(${it.a}deg)`}}>
+                    <span className="font-black text-white" style={{transform:'rotate(90deg)'}}>{it.l}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-14 h-14 bg-white rounded-full flex items-center justify-center z-10 border-4 border-slate-900">
+                <i className="fa-solid fa-star text-violet-500"></i>
+              </div>
+            </div>
+            <button onClick={startSpin} disabled={spinState.active}
+              className="w-full max-w-xs bg-gradient-to-r from-yellow-400 to-amber-500 text-slate-900 font-black py-4 rounded-2xl shadow-2xl active:scale-95 disabled:opacity-50">
+              {spinState.active ? '⏳ Spinning...' : '🎡 Spin Now'}
+            </button>
+            {spinState.showResult && spinState.reward && (
+              <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-lg flex items-center justify-center p-4 animate-slide-up">
+                <div className="bg-gradient-to-br from-violet-600 to-fuchsia-700 p-8 rounded-3xl w-full max-w-sm border-2 border-violet-400 text-center">
+                  <i className={`fa-solid ${spinState.reward.val>0?'fa-party-horn text-yellow-400':'fa-face-frown text-slate-400'} text-6xl mb-4`}></i>
+                  <h2 className="text-3xl font-black mb-2">{spinState.reward.val>0?'🎉 Congrats!':'😢 Oops!'}</h2>
+                  <p className="text-lg mb-6">You got: <b className="text-yellow-300">{spinState.reward.name}</b></p>
+                  <button onClick={() => setSpinState(p => ({...p, showResult: false}))} className="bg-white text-violet-700 font-black px-8 py-3 rounded-2xl w-full">Awesome</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {currentScreen === 'scratch' && (
+          <div className="relative z-10 w-full flex flex-col items-center">
+            <h1 className="text-4xl font-black mb-2 bg-gradient-to-r from-orange-300 to-red-500 bg-clip-text text-transparent">SCRATCH & WIN</h1>
+            <p className="text-slate-400 text-sm mb-6">Win up to {s.scratchMax||20} ⭐</p>
+            <div className="relative w-72 h-72 rounded-3xl overflow-hidden shadow-2xl border-4 border-orange-500/50">
+              {scratched ? (
+                <div className="w-full h-full bg-gradient-to-br from-emerald-500 to-emerald-700 flex flex-col items-center justify-center animate-pop">
+                  <i className="fa-solid fa-coins text-7xl text-yellow-300 mb-4"></i>
+                  <p className="text-6xl font-black">{scratchAmount}</p>
+                  <p className="text-lg font-black text-yellow-200 mt-2">⭐ ADDED!</p>
+                </div>
+              ) : (
+                <div onClick={handleScratch} className="w-full h-full bg-gradient-to-br from-orange-400 to-red-500 flex flex-col items-center justify-center cursor-pointer">
+                  <i className="fa-solid fa-hand-sparkles text-7xl text-white mb-4 animate-pulse"></i>
+                  <span className="font-black text-2xl tracking-widest bg-black/30 px-6 py-3 rounded-2xl">TAP TO SCRATCH</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {currentScreen === 'quiz' && quizState.question && (
+          <div className="relative z-10 w-full flex flex-col items-center px-4">
+            <h1 className="text-4xl font-black mb-2 bg-gradient-to-r from-emerald-300 to-cyan-500 bg-clip-text text-transparent">QUIZ TIME</h1>
+            <p className="text-slate-400 text-sm mb-6">Correct = +{s.quizReward||15} ⭐</p>
+            <div className="w-full bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-6 border-2 border-emerald-500/30">
+              <div className="text-xl font-black text-center py-6 px-4 bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 rounded-2xl border border-emerald-500/30 mb-6">{quizState.question.q}</div>
+              <div className="grid grid-cols-2 gap-3">
+                {quizState.question.options.map((o, i) => {
+                  let cls = 'bg-slate-700 hover:bg-slate-600 border-slate-600';
+                  if (quizState.answered) {
+                    if (o === quizState.question.ans) cls = 'bg-emerald-500 border-emerald-400 scale-105';
+                    else if (o === quizState.selected) cls = 'bg-red-500 border-red-400';
+                    else cls = 'bg-slate-800 text-slate-500 border-slate-700 opacity-50';
+                  }
+                  return <button key={i} disabled={quizState.answered} onClick={() => submitQuiz(o)} className={`py-4 rounded-2xl font-black text-lg border-2 active:scale-95 ${cls}`}>{o}</button>;
+                })}
+              </div>
+            </div>
+            {quizState.answered && (
+              <div className="mt-6 flex flex-col items-center w-full animate-pop">
+                <i className={`fa-solid ${quizState.correct?'fa-circle-check text-emerald-500':'fa-circle-xmark text-red-500'} text-6xl mb-3`}></i>
+                <p className={`text-2xl font-black mb-4 ${quizState.correct?'text-emerald-400':'text-red-400'}`}>{quizState.correct?'CORRECT!':'WRONG!'}</p>
+                <button onClick={loadQuiz} className="bg-white text-slate-900 w-full py-4 rounded-2xl font-black">Next Question</button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ==================== REFER ====================
+  if (currentScreen === 'refer') {
+    const s = appSettings || defaultSettings;
+    const myCode = userData?.refCode || (user ? user.uid.substring(0,6).toUpperCase() : '...');
+    const baseUrl = s.telegramBotUrl || 'https://t.me/YourBot/app';
+    const link = baseUrl.includes('?') ? `${baseUrl}&startapp=${myCode}` : `${baseUrl}?startapp=${myCode}`;
+    const req = Number(s.minReferralsForWithdraw) || 20;
+    const cur = Number(userData?.totalReferrals || 0);
+    const pct = Math.min(100, (cur / req) * 100);
+    const adUrl = s.adLinkUrl || AD_LINK;
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-violet-950 to-slate-950 max-w-md mx-auto text-white">
+        <div className="sticky top-0 z-10 bg-slate-900/80 backdrop-blur-lg p-4 border-b border-white/10 flex items-center gap-3">
+          <button onClick={() => setCurrentScreen('main')} className="p-2 bg-white/10 rounded-xl"><i className="fa-solid fa-arrow-left"></i></button>
+          <h1 className="text-xl font-black">Refer & Earn</h1>
+        </div>
+        <div className="p-5 space-y-5">
+          <div className="bg-gradient-to-br from-violet-600 via-fuchsia-600 to-pink-600 rounded-3xl p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-xs font-black tracking-widest text-white/80">WITHDRAW PROGRESS</p>
+                <p className="text-4xl font-black mt-1">{cur} / {req}</p>
+              </div>
+              <div className="w-16 h-16 bg-white/20 backdrop-blur-lg rounded-2xl flex items-center justify-center">
+                <i className={`fa-solid ${cur >= req ? 'fa-unlock' : 'fa-lock'} text-3xl`}></i>
+              </div>
+            </div>
+            <div className="w-full h-3 bg-white/20 rounded-full overflow-hidden mb-3">
+              <div className="h-full bg-gradient-to-r from-yellow-300 to-amber-500 rounded-full" style={{width: `${pct}%`}}></div>
+            </div>
+            <p className="text-sm font-bold text-white/90">
+              {cur >= req ? '✅ Withdraw Unlocked!' : `${req - cur} more referrals`}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-slate-900/70 backdrop-blur-lg border border-white/10 rounded-2xl p-4 text-center">
+              <i className="fa-solid fa-users text-violet-400 text-2xl mb-2"></i>
+              <p className="text-3xl font-black">{userData?.totalReferrals || 0}</p>
+              <p className="text-xs text-slate-400 font-bold">INVITES</p>
+            </div>
+            <div className="bg-slate-900/70 backdrop-blur-lg border border-white/10 rounded-2xl p-4 text-center">
+              <i className="fa-solid fa-star text-amber-400 text-2xl mb-2"></i>
+              <p className="text-3xl font-black text-amber-400">{userData?.referralEarnings || 0}</p>
+              <p className="text-xs text-slate-400 font-bold">EARNED ⭐</p>
+            </div>
+          </div>
+          <div className="bg-gradient-to-br from-slate-900 to-slate-800 border-2 border-dashed border-violet-500/50 rounded-3xl p-6 text-center">
+            <p className="text-xs font-black text-violet-400 tracking-widest mb-2">YOUR REFER CODE</p>
+            <p className="text-4xl font-black tracking-[0.3em] bg-gradient-to-r from-yellow-300 to-amber-500 bg-clip-text text-transparent mb-4">{myCode}</p>
+            <div className="bg-slate-950/60 p-3 rounded-xl text-xs text-slate-400 font-mono break-all mb-4">{link}</div>
+            <div className="flex gap-3">
+              <button onClick={() => { navigator.clipboard.writeText(myCode); showNotif('Code copied!'); }}
+                className="flex-1 bg-white/10 border border-white/20 py-3 rounded-2xl font-black">
+                <i className="fa-solid fa-copy mr-1"></i> Code
+              </button>
+              <button onClick={() => { navigator.clipboard.writeText(link); showNotif('Link copied!'); }}
+                className="flex-1 bg-gradient-to-r from-violet-600 to-fuchsia-600 py-3 rounded-2xl font-black">
+                <i className="fa-solid fa-share-nodes mr-1"></i> Share
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ==================== HISTORY ====================
+  if (currentScreen === 'history') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 to-slate-200 max-w-md mx-auto">
+        <div className="sticky top-0 z-10 bg-white shadow-md p-4 flex items-center gap-3">
+          <button onClick={() => setCurrentScreen('main')} className="p-2"><i className="fa-solid fa-arrow-left text-lg"></i></button>
+          <h1 className="text-xl font-black text-slate-800">History</h1>
+        </div>
+        <div className="p-4 space-y-3">
+          {!userData.history?.length ? (
+            <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+              <i className="fa-solid fa-clock-rotate-left text-6xl mb-4 opacity-40"></i>
+              <p className="font-bold">No history yet</p>
+            </div>
+          ) : userData.history.map((h, i) => (
+            <div key={h.id || i} className="bg-white rounded-2xl p-4 shadow-sm flex justify-between items-center">
+              <div>
+                <p className="font-black text-slate-800">{h.title}</p>
+                <p className="text-xs text-slate-500 mt-1">{h.date}</p>
+                {h.status && <span className={`inline-block mt-1 text-[10px] font-black px-2 py-0.5 rounded ${h.status==='Approved'?'bg-emerald-100 text-emerald-700':h.status==='Rejected'?'bg-red-100 text-red-700':'bg-amber-100 text-amber-700'}`}>{h.status}</span>}
+              </div>
+              <p className={`font-black text-lg ${h.amount.startsWith('+')?'text-emerald-600':h.amount==='0'?'text-slate-500':'text-red-500'}`}>{h.amount}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ==================== WITHDRAW ====================
+  if (currentScreen === 'withdraw' && selectedMethod) {
+    const opts = selectedMethod.amounts || [selectedMethod.minPayout || 10];
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 to-slate-200 max-w-md mx-auto">
+        <div className="sticky top-0 z-10 bg-white shadow-md p-4 flex items-center justify-between">
+          <button onClick={() => setCurrentScreen('main')} className="p-2"><i className="fa-solid fa-arrow-left text-lg"></i></button>
+          <h1 className="text-lg font-black">{selectedMethod.name}</h1>
+          <div className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-sm font-black">৳{Number(userData.inr).toFixed(2)}</div>
+        </div>
+        <div className="p-4 grid grid-cols-2 gap-4">
+          {opts.map((amt,i) => (
+            <button key={i} onClick={() => {
+              if (Number(userData.inr) < amt) return setLowBalanceModal({ show: true, msg: `Need ৳${amt} balance!`, type: 'bdt' });
+              setWithdrawModal({ show: true, amount: amt, method: selectedMethod });
+            }} className="bg-white p-5 rounded-2xl shadow-md border border-slate-200 flex flex-col items-center">
+              <img src={selectedMethod.iconUrl} className="h-10 w-10 object-contain mb-3" />
+              <p className="text-2xl font-black text-slate-800">৳{amt}</p>
+            </button>
+          ))}
+        </div>
+        {lowBalanceModal.show && <LowBalanceModal data={lowBalanceModal} close={() => setLowBalanceModal({show:false})} onEarn={() => {setLowBalanceModal({show:false}); setActiveTab('coins'); setCurrentScreen('main');}} />}
+        {withdrawModal.show && <WithdrawModal data={withdrawModal} paymentId={paymentId} setPaymentId={setPaymentId} close={() => {setWithdrawModal({show:false,amount:0,method:null}); setPaymentId('');}} onConfirm={processWithdraw} />}
+      </div>
+    );
+  }
+
+  // ==================== MAIN ====================
+  const req = Number((appSettings || defaultSettings).minReferralsForWithdraw) || 20;
+  const cur = Number(userData?.totalReferrals || 0);
+  const locked = cur < req;
+  const adsLeft = getRemainingAds();
+  const adTiers = (appSettings || defaultSettings).adTiers || defaultSettings.adTiers;
+  const perAdReward = Number((appSettings || defaultSettings).adReward) || 10;
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-purple-950 max-w-md mx-auto relative text-white">
+      <div className="fixed top-0 left-0 w-96 h-96 bg-fuchsia-500/20 rounded-full blur-3xl pointer-events-none"></div>
+      <div className="fixed bottom-0 right-0 w-96 h-96 bg-cyan-500/20 rounded-full blur-3xl pointer-events-none"></div>
+
+      {userData.isBlocked && (
+        <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
+          <i className="fa-solid fa-user-lock text-red-500 text-6xl mb-6"></i>
+          <h1 className="text-3xl font-black mb-2">Blocked</h1>
+        </div>
+      )}
+
+      {appSettings?.maintenanceMode && (
+        <div className="fixed inset-0 z-[90] bg-gradient-to-br from-indigo-900 to-purple-900 flex flex-col items-center justify-center p-6 text-center">
+          <i className="fa-solid fa-person-digging text-7xl text-yellow-400 mb-6 animate-bounce"></i>
+          <h1 className="text-3xl font-black mb-2">Under Maintenance</h1>
+        </div>
+      )}
+
+      <div className="sticky top-0 z-30 bg-slate-900/80 backdrop-blur-xl border-b border-white/10 p-4">
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-black bg-gradient-to-r from-violet-400 via-fuchsia-400 to-pink-400 bg-clip-text text-transparent">Ludo Play</h1>
+          <div className="flex gap-2">
+            <div className="bg-amber-400/20 border border-amber-400/40 px-3 py-1.5 rounded-full text-sm font-black text-amber-300 flex items-center gap-1">
+              <i className="fa-solid fa-star text-amber-400"></i> {userData.coins || 0}
+            </div>
+            <div className="bg-emerald-400/20 border border-emerald-400/40 px-3 py-1.5 rounded-full text-sm font-black text-emerald-300 flex items-center gap-1">
+              ৳ {Number(userData.inr || 0).toFixed(0)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-4 pb-28 relative z-10">
+        {activeTab === 'games' && (
+          <div className="space-y-4">
+            <div onClick={() => setCurrentScreen('refer')}
+              className="rounded-3xl p-5 bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-600 shadow-2xl cursor-pointer active:scale-95 transition relative overflow-hidden">
+              <div className="relative z-10 flex items-center gap-4">
+                <div className="w-14 h-14 bg-white/20 backdrop-blur-lg rounded-2xl flex items-center justify-center">
+                  <i className="fa-solid fa-share-nodes text-2xl"></i>
+                </div>
+                <div className="flex-1">
+                  <p className="text-[10px] font-black bg-yellow-400 text-slate-900 inline-block px-2 py-0.5 rounded-lg">🔥 REFER & EARN</p>
+                  <h3 className="font-black text-xl mt-1">Refer Friends</h3>
+                  <p className="text-xs text-white/90">Earn {(appSettings || defaultSettings).referReward || 100} ⭐ per invite</p>
+                  <p className="text-[11px] text-yellow-200 font-bold mt-1">
+                    {locked ? `${req - cur} more to unlock withdraw` : '✅ Withdraw Unlocked!'}
+                  </p>
+                </div>
+                <i className="fa-solid fa-chevron-right text-xl"></i>
+              </div>
+            </div>
+
+            {((appSettings || defaultSettings).tournaments || []).map(t => {
+              const isTTT = t.game === 'tictactoe';
+              return (
+                <div key={t.id} className="bg-slate-900/70 backdrop-blur-lg border border-white/10 rounded-3xl p-5 shadow-xl relative overflow-hidden">
+                  <div className="relative z-10">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-xl font-black">{t.type}</h3>
+                      <span className="text-xs bg-slate-800 px-3 py-1 rounded-full font-bold">{t.mode}</span>
+                    </div>
+                    <div className="flex justify-center mb-5">
+                      <div className="text-center">
+                        <p className="text-xs text-slate-400 font-bold uppercase mb-1">Winning Prize</p>
+                        <p className="text-3xl font-black bg-gradient-to-r from-yellow-300 to-amber-500 bg-clip-text text-transparent">৳{t.prize}</p>
+                      </div>
+                    </div>
+                    <button onClick={() => joinGame(t.fee, t.prize, t.game || 'ludo')}
+                      className={`w-full py-4 rounded-2xl font-black active:scale-95 shadow-lg ${isTTT?'bg-gradient-to-r from-fuchsia-600 to-pink-600':'bg-gradient-to-r from-violet-600 to-indigo-600'}`}>
+                      <i className="fa-solid fa-play mr-1"></i> {t.fee === 0 ? 'Play Free' : `Play for ${t.fee} ⭐`}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {activeTab === 'coins' && (
+          <div className="space-y-4">
+            <h2 className="text-2xl font-black">Earn Coins</h2>
+            <div className="relative h-40 rounded-3xl overflow-hidden shadow-2xl">
+              <div onClick={() => setCurrentScreen('spinWheel')}
+                className={`absolute inset-0 bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 p-6 cursor-pointer transition-opacity ${bannerIndex===0?'opacity-100 z-10':'opacity-0 z-0'}`}>
+                <div className="relative z-10">
+                  <span className="text-[10px] font-black bg-emerald-400 text-slate-900 px-2 py-1 rounded-lg">PLAY & WIN</span>
+                  <h3 className="text-3xl font-black mt-2 text-yellow-300">Spin Wheel</h3>
+                </div>
+                <i className="fa-solid fa-life-ring absolute -right-6 top-6 text-9xl text-white/20 rotate-slow"></i>
+              </div>
+              <div onClick={() => setCurrentScreen('refer')}
+                className={`absolute inset-0 bg-gradient-to-br from-cyan-500 to-blue-600 p-6 cursor-pointer transition-opacity ${bannerIndex===1?'opacity-100 z-10':'opacity-0 z-0'}`}>
+                <div className="relative z-10">
+                  <span className="text-[10px] font-black bg-yellow-400 text-slate-900 px-2 py-1 rounded-lg">REFER & EARN</span>
+                  <h3 className="text-3xl font-black mt-2">Invite Friends</h3>
+                </div>
+                <i className="fa-solid fa-users absolute -right-6 top-6 text-9xl text-white/20"></i>
+              </div>
+            </div>
+
+            <button onClick={watchAdForCoins} disabled={adBusy}
+              className="w-full bg-gradient-to-br from-red-500 via-rose-500 to-pink-600 rounded-3xl p-5 shadow-2xl active:scale-95 text-left relative overflow-hidden disabled:opacity-60">
+              <i className="fa-solid fa-play-circle absolute -right-3 -bottom-3 text-8xl text-white/15"></i>
+              <div className="flex items-center gap-4 relative z-10">
+                <div className="w-16 h-16 bg-white/20 backdrop-blur-lg rounded-2xl flex items-center justify-center">
+                  <i className="fa-solid fa-tv text-3xl"></i>
+                </div>
+                <div className="flex-1">
+                  <p className="font-black text-2xl">{adBusy ? 'Loading...' : 'Watch Ads'}</p>
+                  <p className="text-xs text-white/95 font-bold mt-0.5">Choose 1, 3, or 5 ads & get bonus!</p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="bg-white/25 backdrop-blur-lg px-2 py-0.5 rounded-lg text-[10px] font-black">⭐ {adsLeft} left today</span>
+                    <span className="bg-yellow-400 text-slate-900 px-2 py-0.5 rounded-lg text-[10px] font-black">🎁 up to +{perAdReward*5+15} ⭐</span>
+                  </div>
+                </div>
+                <i className="fa-solid fa-chevron-right text-2xl"></i>
+              </div>
+            </button>
+
+            <button onClick={() => setCurrentScreen('scratch')} disabled={adBusy}
+              className="w-full bg-gradient-to-br from-orange-500 to-amber-600 rounded-3xl p-5 shadow-xl active:scale-95 text-left relative overflow-hidden disabled:opacity-60">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
+                  <i className="fa-solid fa-ticket text-2xl"></i>
+                </div>
+                <div className="flex-1">
+                  <p className="font-black text-xl">Scratch Card</p>
+                  <p className="text-xs text-white/90">Win up to {(appSettings || defaultSettings).scratchMax || 20} ⭐</p>
+                </div>
+                <i className="fa-solid fa-chevron-right"></i>
+              </div>
+            </button>
+
+            <button onClick={loadQuiz}
+              className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 rounded-3xl p-5 shadow-xl active:scale-95 text-left">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
+                  <i className="fa-solid fa-lightbulb text-2xl"></i>
+                </div>
+                <div className="flex-1">
+                  <p className="font-black text-xl">Math Quiz</p>
+                  <p className="text-xs text-white/90">+{(appSettings || defaultSettings).quizReward || 15} ⭐ per correct</p>
+                </div>
+                <i className="fa-solid fa-chevron-right"></i>
+              </div>
+            </button>
+
+            {((appSettings || defaultSettings).socialTasks || []).length > 0 && (
+              <div className="pt-4">
+                <h3 className="font-black text-lg mb-3">More Rewards</h3>
+                <div className="space-y-3">
+                  {((appSettings || defaultSettings).socialTasks).map(task => {
+                    const done = completedTasks.includes(task.id);
+                    const iconMap = { telegram: 'fa-telegram text-blue-400 bg-blue-500/20', youtube: 'fa-youtube text-red-500 bg-red-500/20', instagram: 'fa-instagram text-pink-500 bg-pink-500/20', globe: 'fa-globe text-violet-400 bg-violet-500/20' };
+                    const ic = iconMap[task.platform] || iconMap.globe;
+                    const [icName, icColor, icBg] = ic.split(' ');
+                    return (
+                      <div key={task.id} className="bg-slate-900/70 backdrop-blur-lg border border-white/10 rounded-2xl p-4 flex items-center gap-3">
+                        <div className={`w-12 h-12 ${icBg} rounded-2xl flex items-center justify-center`}>
+                          <i className={`fa-brands ${icName} ${icColor} text-2xl`}></i>
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-black text-sm">{task.title}</p>
+                          <p className="text-xs text-amber-400 font-black">+{task.coins} ⭐</p>
+                        </div>
+                        <button onClick={() => {
+                          if (done) return;
+                          openExternalLink(task.link);
+                          const pending = { type: 'task', amount: task.coins, reason: 'Task Reward', statType: null, taskId: task.id };
+                          setPendingReward(pending);
+                          claimShownRef.current = false;
+                          setShowClaim(false);
+                          savePending(pending, null);
+                        }} disabled={done}
+                          className={`px-4 py-2 rounded-full font-black text-xs ${done?'bg-slate-700 text-slate-500':'bg-gradient-to-r from-violet-600 to-fuchsia-600'}`}>
+                          {done ? 'Done' : 'Claim'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'leaderboard' && (
+          <div className="space-y-5">
+            <div className="bg-gradient-to-br from-amber-500 to-orange-600 rounded-3xl p-6 text-center shadow-2xl">
+              <i className="fa-solid fa-trophy text-5xl text-yellow-200 mb-3"></i>
+              <h2 className="text-3xl font-black">Leaderboard</h2>
+            </div>
+            <div className="bg-slate-900/70 backdrop-blur-lg border border-white/10 rounded-3xl overflow-hidden">
+              {leaderboard.map((p, i) => (
+                <div key={p.uid} className={`flex items-center justify-between p-4 border-b border-white/5 ${i===0?'bg-amber-500/10':''}`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 text-center font-black ${i===0?'text-3xl':i===1?'text-2xl':i===2?'text-2xl':'text-slate-400'}`}>
+                      {i===0?'🥇':i===1?'🥈':i===2?'🥉':`#${i+1}`}
+                    </div>
+                    <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${p.uid}`} className="w-11 h-11 rounded-full bg-white/10" />
+                    <p className="font-black truncate max-w-[120px]">{p.name || 'User'}</p>
+                  </div>
+                  <p className="font-black text-emerald-400">৳{(Number(p.inr)||0).toFixed(2)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'wallet' && (
+          <div className="space-y-5">
+            <h2 className="text-2xl font-black">Wallet</h2>
+            {locked && (
+              <div className="bg-gradient-to-r from-red-500 to-rose-600 rounded-3xl p-5 shadow-2xl">
+                <div className="flex items-center gap-3 mb-3">
+                  <i className="fa-solid fa-lock text-3xl"></i>
+                  <div>
+                    <h3 className="font-black text-lg">Withdraw Locked</h3>
+                    <p className="text-xs">Need {req} referrals</p>
+                  </div>
+                </div>
+                <div className="w-full h-3 bg-white/20 rounded-full overflow-hidden mb-3">
+                  <div className="h-full bg-yellow-300 rounded-full" style={{width: `${Math.min(100,(cur/req)*100)}%`}}></div>
+                </div>
+                <button onClick={() => setCurrentScreen('refer')} className="w-full bg-white text-red-600 font-black py-3 rounded-2xl">
+                  Refer Now
+                </button>
+              </div>
+            )}
+            <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-3xl p-6 shadow-2xl">
+              <p className="text-xs font-black tracking-widest mb-1">EARNING WALLET</p>
+              <p className="text-5xl font-black">৳{Number(userData.inr).toFixed(2)}</p>
+            </div>
+            <button onClick={() => setCurrentScreen('history')} className="w-full bg-slate-900/70 backdrop-blur-lg border border-white/10 rounded-2xl p-4 flex justify-between items-center">
+              <span className="font-black">History</span>
+              <i className="fa-solid fa-chevron-right text-slate-400"></i>
+            </button>
+            <div>
+              <h3 className="font-black text-lg mb-3">Withdraw Via</h3>
+              <div className="space-y-3">
+                {((appSettings || defaultSettings).withdrawMethods || []).map(m => (
+                  <button key={m.id} onClick={() => {
+                    let f = m;
+                    if (!f.amounts?.length) f = { ...m, amounts: [m.minPayout || 10] };
+                    setSelectedMethod(f);
+                    setCurrentScreen('withdraw');
+                  }} className="w-full bg-slate-900/70 backdrop-blur-lg border border-white/10 rounded-2xl p-4 flex items-center gap-4">
+                    <img src={m.iconUrl} className="w-12 h-12 object-contain" />
+                    <div className="flex-1 text-left">
+                      <p className="font-black">{m.name}</p>
+                      <p className="text-xs text-slate-400">Min: ৳{m.minPayout}</p>
+                    </div>
+                    <i className="fa-solid fa-chevron-right text-slate-400"></i>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'profile' && (
+          <div className="space-y-5">
+            <div className="bg-slate-900/70 backdrop-blur-lg border border-white/10 rounded-3xl p-6 flex items-center gap-4">
+              <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid || 'me'}`} className="w-20 h-20 rounded-full border-4 border-violet-500/50" />
+              <div>
+                <p className="text-2xl font-black">{userData.name}</p>
+                <p className="text-xs font-mono text-slate-400 mt-1">{user?.uid?.slice(0,16)}...</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-gradient-to-br from-amber-400 to-orange-500 rounded-3xl p-4">
+                <i className="fa-solid fa-star text-3xl mb-2"></i>
+                <p className="text-3xl font-black">{userData.coins || 0}</p>
+                <p className="text-xs font-black opacity-90">COINS</p>
+              </div>
+              <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-3xl p-4">
+                <i className="fa-solid fa-wallet text-3xl mb-2"></i>
+                <p className="text-3xl font-black">৳{Number(userData.inr || 0).toFixed(0)}</p>
+                <p className="text-xs font-black opacity-90">BDT</p>
+              </div>
+            </div>
+            <div className="bg-slate-900/70 backdrop-blur-lg border border-white/10 rounded-3xl overflow-hidden">
+              <button onClick={() => setCurrentScreen('refer')} className="w-full flex items-center justify-between p-4 border-b border-white/5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-white/5 flex items-center justify-center text-fuchsia-400"><i className="fa-solid fa-user-plus"></i></div>
+                  <p className="font-bold">Refer & Earn</p>
+                </div>
+                <i className="fa-solid fa-chevron-right text-slate-500"></i>
+              </button>
+              <button onClick={() => setCurrentScreen('history')} className="w-full flex items-center justify-between p-4 border-b border-white/5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-white/5 flex items-center justify-center text-violet-400"><i className="fa-solid fa-clock-rotate-left"></i></div>
+                  <p className="font-bold">History</p>
+                </div>
+                <i className="fa-solid fa-chevron-right text-slate-500"></i>
+              </button>
+              <button onClick={() => setShowDeleteModal(true)} className="w-full flex items-center justify-between p-4 border-b border-white/5 text-red-400">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-red-500/20 flex items-center justify-center"><i className="fa-solid fa-trash"></i></div>
+                  <p className="font-bold">Delete Account</p>
+                </div>
+                <i className="fa-solid fa-chevron-right"></i>
+              </button>
+              <button onClick={async () => { await signOut(auth); window.location.reload(); }} className="w-full flex items-center justify-between p-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-white/5 flex items-center justify-center text-slate-400"><i className="fa-solid fa-arrow-right-from-bracket"></i></div>
+                  <p className="font-bold">Logout</p>
+                </div>
+                <i className="fa-solid fa-chevron-right text-slate-500"></i>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md z-40">
+        <div className="bg-slate-900/90 backdrop-blur-2xl border-t border-white/10 flex justify-around py-2.5 px-1">
+          {[
+            { id:'games', icon:'fa-gamepad', label:'Play' },
+            { id:'coins', icon:'fa-coins', label:'Earn' },
+            { id:'refer', icon:'fa-user-plus', label:'Refer', special: true },
+            { id:'leaderboard', icon:'fa-trophy', label:'Rank' },
+            { id:'wallet', icon:'fa-wallet', label:'Wallet' },
+            { id:'profile', icon:'fa-user', label:'Me' },
+          ].map(t => {
+            const isActive = (t.id === 'refer' && currentScreen === 'refer') || (activeTab === t.id && currentScreen !== 'refer');
+            return (
+              <button key={t.id} onClick={() => {
+                if (t.id === 'refer') setCurrentScreen('refer');
+                else { setActiveTab(t.id); setCurrentScreen('main'); }
+              }} className={`flex flex-col items-center w-14 p-1.5 rounded-2xl transition-all ${isActive ? 'text-violet-400 scale-110' : 'text-slate-500'}`}>
+                <div className={`p-1.5 rounded-2xl mb-0.5 ${isActive ? 'bg-violet-500/20' : ''}`}>
+                  <i className={`fa-solid ${t.icon} text-lg`}></i>
+                </div>
+                <span className="text-[9px] font-black">{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {notification && (
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 backdrop-blur-xl border border-white/20 text-white px-5 py-3 rounded-2xl shadow-2xl font-bold animate-pop max-w-[90%] text-center">
+          {notification}
+        </div>
+      )}
+
+      {/* AD TIER PICKER */}
+      {adPicker && (
+        <div className="fixed inset-0 z-[200] bg-black/85 backdrop-blur-lg flex items-end justify-center">
+          <div className="w-full max-w-md bg-gradient-to-b from-slate-900 to-slate-950 rounded-t-3xl p-6 animate-slide-up border-t-2 border-violet-500/50">
+            <div className="w-12 h-1.5 bg-slate-600 rounded-full mx-auto mb-5"></div>
+            <div className="text-center mb-5">
+              <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-red-500 to-pink-600 flex items-center justify-center mb-3 shadow-xl">
+                <i className="fa-solid fa-tv text-white text-2xl"></i>
+              </div>
+              <h2 className="text-2xl font-black">Choose Ad Pack</h2>
+              <p className="text-slate-400 text-xs mt-1">Ads left today: <b className="text-amber-300">{adsLeft}</b></p>
+            </div>
+            <div className="space-y-3 mb-5">
+              {adTiers.map((tier, i) => {
+                const total = tier.count * perAdReward + (tier.bonus || 0);
+                const affordable = adsLeft >= tier.count;
+                const isBest = i === adTiers.length - 1;
+                const isPopular = i === 1 && adTiers.length >= 3;
+                return (
+                  <button key={i} onClick={() => affordable && startMultiAd(tier)} disabled={!affordable}
+                    className={`w-full relative rounded-2xl p-4 text-left active:scale-95 transition-all disabled:opacity-40 border-2 ${
+                      isBest ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 border-amber-500' :
+                      isPopular ? 'bg-gradient-to-r from-violet-600/20 to-fuchsia-600/20 border-violet-500' :
+                      'bg-slate-800/60 border-slate-700'
+                    }`}>
+                    {isBest && <span className="absolute -top-2 right-3 bg-gradient-to-r from-amber-400 to-orange-500 text-slate-900 text-[10px] font-black px-3 py-0.5 rounded-full">🔥 BEST</span>}
+                    {isPopular && !isBest && <span className="absolute -top-2 right-3 bg-gradient-to-r from-violet-400 to-fuchsia-500 text-white text-[10px] font-black px-3 py-0.5 rounded-full">⭐ POPULAR</span>}
+                    <div className="flex items-center gap-4">
+                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${
+                        isBest ? 'bg-gradient-to-br from-amber-500 to-orange-500' :
+                        isPopular ? 'bg-gradient-to-br from-violet-500 to-fuchsia-600' :
+                        'bg-gradient-to-br from-slate-700 to-slate-800'
+                      }`}>
+                        <div className="flex flex-wrap gap-0.5 justify-center">
+                          {[...Array(tier.count)].map((_, j) => <i key={j} className="fa-solid fa-play text-white text-[10px]"></i>)}
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-black text-lg">{tier.count} Ad{tier.count > 1 ? 's' : ''}</p>
+                        <p className="text-xs text-slate-400 font-bold">
+                          {tier.count > 1 && tier.bonus > 0 && <span className="text-emerald-400">+{tier.bonus} ⭐ Bonus!</span>}
+                          {tier.count === 1 && 'Single ad'}
+                          {tier.count > 1 && tier.bonus === 0 && 'Combo pack'}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-2xl font-black bg-gradient-to-r bg-clip-text text-transparent ${
+                          isBest ? 'from-amber-300 to-orange-500' :
+                          isPopular ? 'from-violet-300 to-fuchsia-400' :
+                          'from-slate-300 to-slate-500'
+                        }`}>+{total} ⭐</p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={() => setAdPicker(false)} className="w-full text-slate-400 font-bold py-3 text-sm">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* CLAIM POPUP */}
+      {showClaim && pendingReward && (
+        <div className="fixed inset-0 z-[200] bg-black/85 backdrop-blur-lg flex items-center justify-center p-6">
+          <div className="bg-gradient-to-br from-slate-900 to-slate-950 border-2 border-emerald-400/50 rounded-3xl p-7 w-full max-w-sm text-center animate-pop shadow-[0_0_60px_rgba(16,185,129,0.4)]">
+            <div className="w-24 h-24 mx-auto rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center mb-5 shadow-2xl pulse-glow">
+              <i className="fa-solid fa-check text-white text-5xl"></i>
+            </div>
+            {pendingReward.type === 'multi-ad' ? (
+              <>
+                <div className="mb-3 flex items-center justify-center gap-2">
+                  <span className="bg-violet-500/20 border border-violet-500/40 px-3 py-1 rounded-full text-xs font-black text-violet-300">
+                    Ad {pendingReward.adNumber} of {pendingReward.totalAds}
+                  </span>
+                </div>
+                <h3 className="text-2xl font-black mb-2">✅ Ad দেখেছেন?</h3>
+                <p className="text-slate-400 text-sm mb-1">Ad দেখার পর নিচের বাটনে ক্লিক করুন</p>
+                <div className="my-4 py-4 px-5 bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/40 rounded-2xl">
+                  <p className="text-xs text-amber-300 font-black tracking-widest mb-1">এই অ্যাডের রিওয়ার্ড</p>
+                  <p className="text-4xl font-black text-yellow-300">+{pendingReward.amount} ⭐</p>
+                  {pendingReward.bonus > 0 && <p className="text-[11px] text-emerald-400 font-black mt-1">🎁 includes +{pendingReward.bonus} bonus!</p>}
+                </div>
+                {!pendingReward.isLast && (
+                  <div className="mb-4 bg-slate-800/60 rounded-xl p-3 text-xs text-slate-400">
+                    <i className="fa-solid fa-forward text-violet-400 mr-1"></i>
+                    Next: {pendingReward.totalAds - pendingReward.adNumber} more
+                  </div>
+                )}
+                {pendingReward.isLast && (
+                  <div className="mb-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 text-xs text-emerald-300 font-black">
+                    🎉 LAST ad of your pack!
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <h3 className="text-2xl font-black mb-2">✅ Ad দেখেছেন?</h3>
+                <p className="text-slate-400 text-sm mb-1">Ad দেখার পর নিচের বাটনে ক্লিক করুন</p>
+                <div className="my-5 py-4 px-5 bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/40 rounded-2xl">
+                  <p className="text-xs text-amber-300 font-black tracking-widest mb-1">আপনার রিওয়ার্ড</p>
+                  <p className="text-4xl font-black text-yellow-300">+{pendingReward.amount} ⭐</p>
+                </div>
+              </>
+            )}
+            <i className="fa-solid fa-arrow-down text-emerald-400 text-2xl mb-3 bounce-arrow block"></i>
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (claiming) return;
+                if (pendingReward.type === 'multi-ad') claimMultiAd();
+                else claimSingle();
+              }}
+              disabled={claiming}
+              className={`w-full font-black py-5 rounded-2xl shadow-2xl active:scale-95 text-lg mb-3 transition-all ${
+                claiming 
+                  ? 'bg-slate-600 cursor-not-allowed opacity-70' 
+                  : 'bg-gradient-to-r from-emerald-500 to-teal-600'
+              }`}
+            >
+              {claiming ? (
+                <><i className="fa-solid fa-spinner fa-spin mr-2"></i> যোগ হচ্ছে...</>
+              ) : (
+                <><i className="fa-solid fa-gift mr-2"></i> রিওয়ার্ড নিন</>
+              )}
+            </button>
+            <button
+              onClick={pendingReward.type === 'multi-ad' ? cancelMultiAd : () => { clearPending(); setPendingReward(null); setShowClaim(false); }}
+              disabled={claiming}
+              className="w-full text-slate-500 font-bold py-2 text-xs disabled:opacity-30"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {lowBalanceModal.show && <LowBalanceModal data={lowBalanceModal} close={() => setLowBalanceModal({show:false})} onEarn={() => {setLowBalanceModal({show:false}); setActiveTab('coins'); setCurrentScreen('main');}} />}
+      {withdrawModal.show && <WithdrawModal data={withdrawModal} paymentId={paymentId} setPaymentId={setPaymentId} close={() => {setWithdrawModal({show:false,amount:0,method:null}); setPaymentId('');}} onConfirm={processWithdraw} />}
+      {winPopup && <WinOverlay amount={winPopup} />}
+      {celebrate && <CelebrationOverlay data={celebrate} />}
+
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-lg flex items-center justify-center p-6">
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-6 w-full max-w-sm text-center animate-pop">
+            <i className="fa-solid fa-triangle-exclamation text-6xl text-red-500 mb-4"></i>
+            <h3 className="text-2xl font-black mb-2">Delete Account?</h3>
+            <p className="text-slate-400 text-sm mb-6">All data will be lost.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowDeleteModal(false)} className="flex-1 bg-slate-800 font-black py-3 rounded-2xl">Cancel</button>
+              <button onClick={async () => { await deleteDoc(doc(db, 'zudocash_users', user.uid)); await signOut(auth); window.location.reload(); }} className="flex-1 bg-red-500 font-black py-3 rounded-2xl">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============ SUBCOMPONENTS ============
+const LowBalanceModal = ({ data, close, onEarn }) => (
+  <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-lg flex items-center justify-center p-6">
+    <div className="bg-slate-900 border border-white/10 rounded-3xl p-6 w-full max-w-sm text-center relative animate-pop">
+      <button onClick={close} className="absolute top-4 right-4 text-slate-400 p-2"><i className="fa-solid fa-xmark text-xl"></i></button>
+      <div className={`w-20 h-20 mx-auto rounded-3xl flex items-center justify-center mb-4 ${data.type==='limit'?'bg-amber-500/20 text-amber-400':'bg-violet-500/20 text-violet-400'}`}>
+        <i className={`fa-solid ${data.type==='limit'?'fa-hourglass-end':'fa-coins'} text-4xl`}></i>
+      </div>
+      <h3 className="text-2xl font-black mb-2">{data.type==='limit'?'Limit Reached':'Low Balance'}</h3>
+      <p className="text-slate-400 text-sm mb-6">{data.msg}</p>
+      <button onClick={onEarn} className="w-full bg-gradient-to-r from-violet-600 to-fuchsia-600 font-black py-4 rounded-2xl">Earn More</button>
+    </div>
+  </div>
+);
+
+const WithdrawModal = ({ data, paymentId, setPaymentId, close, onConfirm }) => (
+  <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-lg flex items-center justify-center p-6">
+    <div className="bg-slate-900 border border-white/10 rounded-3xl p-6 w-full max-w-sm relative animate-pop">
+      <button onClick={close} className="absolute top-4 right-4 text-slate-400 p-2"><i className="fa-solid fa-xmark text-xl"></i></button>
+      <h3 className="text-2xl font-black mb-2">Withdraw ৳{data.amount}</h3>
+      <p className="text-slate-400 text-sm mb-4">Enter your {data.method.name} number</p>
+      <input type="text" value={paymentId} onChange={e => setPaymentId(e.target.value)} placeholder={`${data.method.name} number`}
+        className="w-full bg-slate-800 border border-white/10 rounded-2xl p-4 mb-5 outline-none focus:border-violet-500 font-bold" />
+      <button onClick={onConfirm} disabled={!paymentId}
+        className="w-full bg-gradient-to-r from-violet-600 to-fuchsia-600 font-black py-4 rounded-2xl disabled:opacity-50">Confirm</button>
+    </div>
+  </div>
+);
+
+const WinOverlay = ({ amount }) => (
+  <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-lg flex flex-col items-center justify-center p-6 text-center">
+    <div className="relative animate-pop">
+      <i className="fa-solid fa-trophy text-9xl text-yellow-400 mb-6"></i>
+      <h1 className="text-6xl font-black italic mb-2 bg-gradient-to-b from-yellow-200 to-amber-500 bg-clip-text text-transparent">VICTORY</h1>
+      <p className="text-xl text-slate-300 mb-8">You won!</p>
+      <div className="bg-gradient-to-b from-emerald-400 to-emerald-600 rounded-3xl p-6 border-2 border-emerald-300 inline-block px-12">
+        <p className="text-xs text-emerald-100 tracking-widest font-black">PRIZE</p>
+        <p className="text-5xl font-black mt-1">{amount}</p>
+      </div>
+    </div>
+  </div>
+);
+
+const CelebrationOverlay = ({ data }) => (
+  <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-lg flex items-center justify-center p-6 pointer-events-none">
+    <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-3xl p-8 text-center max-w-sm shadow-2xl animate-pop border-2 border-emerald-300">
+      <i className="fa-solid fa-circle-check text-7xl text-white mb-4"></i>
+      <h3 className="text-3xl font-black mb-1">{data.title}</h3>
+      <p className="text-2xl font-black text-yellow-300">{data.sub}</p>
+    </div>
+  </div>
+);
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+  </html>
